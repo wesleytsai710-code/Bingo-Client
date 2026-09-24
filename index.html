@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Bingo 遊戲 - 遊玩端</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h2 { color: #2c3e50; }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            width: 320px;
+            text-align: center;
+            border: 1px solid #e0e0e0;
+        }
+        input {
+            width: 80%;
+            padding: 10px;
+            margin: 8px 0;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 15px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+        }
+        button:hover { background-color: #45a049; }
+        
+        #waitingArea { display: none; text-align: center; }
+        #gameArea { display: none; width: 100%; max-width: 400px; text-align: center; }
+        
+        .target-banner {
+            background-color: #f39c12;
+            color: white;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            min-height: 24px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .cell {
+            background-color: #ffffff;
+            border: 2px solid #bdc3c7;
+            border-radius: 8px;
+            height: 90px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s;
+            padding: 5px;
+            text-align: center;
+            color: #333;
+        }
+        .cell.active {
+            background-color: #e67e22 !important;
+            color: white;
+            border-color: #d35400;
+        }
+        
+        .cell.error-flash {
+            background-color: #e74c3c !important;
+            color: white !important;
+            border-color: #c0392b !important;
+            transform: scale(1.05);
+        }
+
+        .bingo-btn {
+            background-color: #bdc3c7;
+            color: white;
+            padding: 14px;
+            width: 100%;
+            font-size: 18px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: not-allowed;
+            transition: background-color 0.3s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .bingo-btn.available {
+            background-color: #e74c3c;
+            cursor: pointer;
+        }
+        .bingo-btn.available:hover {
+            background-color: #c0392b;
+        }
+        .bingo-btn.bingoed {
+            background-color: #f39c12;
+            cursor: default;
+        }
+        .bingo-btn.approved {
+            background-color: #27ae60;
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card" id="loginCard">
+        <h2>加入 Bingo 遊戲</h2>
+        <input type="text" id="roomCode" placeholder="請輸入加入代碼"><br>
+        <input type="text" id="playerName" placeholder="請輸入您的暱稱"><br><br>
+        <button onclick="joinGame()">進入大廳</button>
+    </div>
+
+    <div class="card" id="waitingArea">
+        <h2>等待主持人開始遊戲...</h2>
+        <p>玩家：<span id="waitPlayerName" style="color: #e67e22; font-weight: bold;"></span></p>
+        <p>房號：<span id="waitRoomCode" style="color: #e74c3c; font-weight: bold;"></span></p>
+        <p style="color: #666; font-size: 14px;">請稍候，主持人準備好就會開始囉！</p>
+    </div>
+
+    <div id="gameArea">
+        <h2>玩家：<span id="displayName" style="color: #27ae60;"></span></h2>
+        <div id="winConditionInfo" style="font-size: 13px; color: #666; margin-bottom: 8px;">目標模式：載入中...</div>
+        <div class="target-banner" id="targetBanner">目標：等待主持人發布...</div>
+        <div class="grid" id="bingoGrid"></div>
+        <button id="bingoBtn" class="bingo-btn" onclick="declareBingo()">🎉 BINGO! (尚未達成)</button>
+    </div>
+
+    <script>
+        let currentRoom = '';
+        let playerName = '';
+        let hasDeclared = false;
+
+        const defaultCells = [
+            "一起玩波浪舞", "拍手 10 下", "大喊我愛大家",
+            "擺出超帥姿勢", "對隔壁微笑", "原地轉三圈",
+            "模仿動物叫聲", "跟主持人擊掌", "說一個冷笑話"
+        ];
+
+        window.onload = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomFromUrl = urlParams.get('room');
+            if (roomFromUrl) {
+                document.getElementById('roomCode').value = roomFromUrl.toUpperCase();
+            }
+        };
+
+        function joinGame() {
+            currentRoom = document.getElementById('roomCode').value.trim().toUpperCase();
+            playerName = document.getElementById('playerName').value.trim();
+
+            if (!currentRoom || !playerName) {
+                alert('請完整輸入加入代碼與暱稱！');
+                return;
+            }
+
+            let players = JSON.parse(localStorage.getItem(`bingo_players_${currentRoom}`)) || [];
+            if (!players.includes(playerName)) {
+                players.push(playerName);
+                localStorage.setItem(`bingo_players_${currentRoom}`, JSON.stringify(players));
+            }
+
+            document.getElementById('waitPlayerName').innerText = playerName;
+            document.getElementById('waitRoomCode').innerText = currentRoom;
+            document.getElementById('loginCard').style.display = 'none';
+            document.getElementById('waitingArea').style.display = 'block';
+
+            setInterval(syncGameStatus, 500);
+        }
+
+        function syncGameStatus() {
+            if (!currentRoom) return;
+
+            const gameStarted = localStorage.getItem(`bingo_started_${currentRoom}`);
+            if (gameStarted === 'true') {
+                document.getElementById('waitingArea').style.display = 'none';
+                document.getElementById('gameArea').style.display = 'block';
+                document.getElementById('displayName').innerText = playerName;
+
+                const mode = localStorage.getItem(`bingo_mode_${currentRoom}`) || '1';
+                let modeText = '連線 1 條線';
+                if (mode === '2') modeText = '連線 2 條線';
+                if (mode === 'x') modeText = 'X 型交叉連線';
+                document.getElementById('winConditionInfo').innerText = `🔥 勝利條件：${modeText}`;
+
+                initGrid();
+            }
+
+            const currentTarget = localStorage.getItem(`bingo_target_${currentRoom}`);
+            if (currentTarget) {
+                document.getElementById('targetBanner').innerText = `目標：${currentTarget}`;
+            }
+
+            const result = localStorage.getItem(`bingo_result_${currentRoom}_${playerName}`);
+            const btn = document.getElementById('bingoBtn');
+            if (result === 'approved') {
+                btn.className = "bingo-btn approved";
+                btn.innerText = "🏆 審核通過：BINGO 勝利！";
+            } else if (result === 'rejected') {
+                btn.className = "bingo-btn available";
+                btn.innerText = "❌ 審核未過，請繼續調整";
+                hasDeclared = false;
+                localStorage.removeItem(`bingo_result_${currentRoom}_${playerName}`);
+            }
+        }
+
+        function initGrid() {
+            const gridEl = document.getElementById('bingoGrid');
+            if (gridEl.children.length > 0) return;
+            
+            let savedState = localStorage.getItem(`bingo_state_${currentRoom}_${playerName}`);
+            let cellStates = savedState ? JSON.parse(savedState) : Array(9).fill(false);
+
+            defaultCells.forEach((text, index) => {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                if (cellStates[index]) cell.classList.add('active');
+                cell.innerText = text;
+                
+                cell.onclick = () => {
+                    if (btnIsApproved()) return;
+
+                    const currentTarget = localStorage.getItem(`bingo_target_${currentRoom}`);
+
+                    if (!currentTarget || text !== currentTarget) {
+                        cell.classList.add('error-flash');
+                        setTimeout(() => {
+                            cell.classList.remove('error-flash');
+                        }, 2000);
+                        return;
+                    }
+
+                    cell.classList.toggle('active');
+                    saveState();
+                    checkBingoCondition();
+                };
+                gridEl.appendChild(cell);
+            });
+            checkBingoCondition();
+        }
+
+        function btnIsApproved() {
+            const btn = document.getElementById('bingoBtn');
+            return btn.classList.contains('approved');
+        }
+
+        function saveState() {
+            const cells = document.querySelectorAll('.cell');
+            const states = Array.from(cells).map(c => c.classList.contains('active'));
+            localStorage.setItem(`bingo_state_${currentRoom}_${playerName}`, JSON.stringify(states));
+        }
+
+        function checkBingoCondition() {
+            if (hasDeclared || btnIsApproved()) return;
+
+            const cells = document.querySelectorAll('.cell');
+            const matrix = [
+                [cells[0].classList.contains('active'), cells[1].classList.contains('active'), cells[2].classList.contains('active')],
+                [cells[3].classList.contains('active'), cells[4].classList.contains('active'), cells[5].classList.contains('active')],
+                [cells[6].classList.contains('active'), cells[7].classList.contains('active'), cells[8].classList.contains('active')]
+            ];
+
+            const mode = localStorage.getItem(`bingo_mode_${currentRoom}`) || '1';
+            let lineCount = 0;
+
+            for (let i = 0; i < 3; i++) {
+                if (matrix[i][0] && matrix[i][1] && matrix[i][2]) lineCount++;
+            }
+            for (let j = 0; j < 3; j++) {
+                if (matrix[0][j] && matrix[1][j] && matrix[2][j]) lineCount++;
+            }
+            const diag1 = matrix[0][0] && matrix[1][1] && matrix[2][2];
+            const diag2 = matrix[0][2] && matrix[1][1] && matrix[2][0];
+            if (diag1) lineCount++;
+            if (diag2) lineCount++;
+
+            let isConnected = false;
+            if (mode === '1') {
+                isConnected = (lineCount >= 1);
+            } else if (mode === '2') {
+                isConnected = (lineCount >= 2);
+            } else if (mode === 'x') {
+                isConnected = (diag1 && diag2);
+            }
+
+            const btn = document.getElementById('bingoBtn');
+            if (isConnected) {
+                btn.classList.add('available');
+                btn.innerText = "🎉 點擊宣告 BINGO！";
+            } else {
+                btn.classList.remove('available');
+                btn.innerText = "🎉 BINGO! (尚未達成)";
+            }
+        }
+
+        function declareBingo() {
+            const btn = document.getElementById('bingoBtn');
+            if (!btn.classList.contains('available') || hasDeclared || btnIsApproved()) return;
+
+            hasDeclared = true;
+            btn.className = "bingo-btn bingoed";
+            btn.innerText = "⏳ 等待主持人審核中...";
+
+            let pendingQueue = JSON.parse(localStorage.getItem(`bingo_pending_${currentRoom}`)) || [];
+            if (!pendingQueue.includes(playerName)) {
+                pendingQueue.push(playerName);
+                localStorage.setItem(`bingo_pending_${currentRoom}`, JSON.stringify(pendingQueue));
+            }
+        }
+    </script>
+</body>
+</html>
